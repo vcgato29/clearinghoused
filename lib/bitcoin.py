@@ -93,7 +93,19 @@ def send_raw_transaction (tx_hex):
 def get_private_key (address):
     return rpc('dumpprivkey', [address])
 def search_raw_transactions (address):
-    return rpc('searchrawtransactions', [address, 1, 0, 9999999])
+    try:
+        return rpc('searchrawtransactions', [address, 1, 0, 9999999])
+    except exceptions.BitcoindError as exc:
+        if '-32601' not in str(exc):
+            raise
+
+    txids = rpc('getaddresstxids', [{'addresses': [address]}])
+    transactions = []
+    for txid in txids:
+        tx = get_raw_transaction(txid)
+        if tx.get('confirmations', 0) > 0:
+            transactions.append(tx)
+    return transactions
 
 def get_wallet ():
     for group in rpc('listaddressgroupings', []):
@@ -156,6 +168,14 @@ def rpc (method, params):
         if config.TESTNET: network = 'testnet'
         else: network = 'mainnet'
         raise exceptions.BitcoindRPCError('Cannot communicate with {} Core. ({} is set to run on {}, is {} Core?)'.format(config.BTC_NAME, config.XCP_CLIENT, network, config.BTC_NAME))
+    elif response.status_code == 404:
+        try:
+            error = response.json().get('error')
+        except (ValueError, AttributeError):
+            error = None
+        if isinstance(error, dict) and error.get('code') == -32601:
+            raise exceptions.BitcoindError(str(error))
+        raise exceptions.BitcoindRPCError(str(response.status_code) + ' ' + response.reason)
     elif response.status_code not in (200, 500):
         raise exceptions.BitcoindRPCError(str(response.status_code) + ' ' + response.reason)
 
