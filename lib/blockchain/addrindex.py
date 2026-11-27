@@ -24,15 +24,9 @@ def getmempool():
     return rv
 
 def searchrawtx(address):
-    rv = []
-    idx = 0
-    while True:
-        chunk = lib.bitcoin.rpc('searchrawtransactions', [address, 1, idx])
-        if not chunk:
-            break
-        rv += [t for t in chunk if 'confirmations' in t and t['confirmations']]
-        idx += 100
-    return rv
+    return [tx for tx in lib.bitcoin.search_raw_transactions(address)
+            if tx.get('confirmations', 0) > 0]
+
 
 def ismine(vout, address, allow_multisig=False):
     return 'scriptPubKey' in vout and \
@@ -48,7 +42,7 @@ def has_my_vout(tx, address):
 
 def has_my_vin(tx, vout_txs, address):
     for vin in tx['vin']:
-        if vin['txid'] in vout_txs:
+        if 'txid' in vin and vin['txid'] in vout_txs:
             for vout in vout_txs[vin['txid']]:
                 if vout['n'] == vin['vout'] and ismine(vout, address):
                     return True
@@ -66,7 +60,7 @@ def listunspent(address):
     txs = {tx['txid']: tx for tx in txraw}
     for txid in txs:
         for vin in txs[txid]['vin']:
-            if vin['txid'] in txs:
+            if 'txid' in vin and vin['txid'] in txs:
                 txs[vin['txid']]['vout'] = [v for v in txs[vin['txid']]['vout'] if v['n'] != vin['vout']]
     for txid in txs:
         txs[txid]['vout'] = [v for v in txs[txid]['vout'] if ismine(v, address)]
@@ -105,9 +99,11 @@ def getaddressinfo(address):
         if mptx in txs:
             continue
         for vin in mptxs[mptx]['vin']:
+            if 'txid' not in vin:
+                continue
             if vin['txid'] in mptxs_own_vouts:
-                vout = locate_vout(mptxs_own_vouts[vin['txid']], vin['vout'])
-                if ismine(vout, address):
+                vout = locate_vout(mptxs_own_vouts[vin['txid']]['vout'], vin['vout'])
+                if vout is not None and ismine(vout, address):
                     mptxs_own_vins[mptx] = mptxs[mptx]
                     break
             elif vin['txid'] in txs:
